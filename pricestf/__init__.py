@@ -1,2 +1,1 @@
-from .pricestf import get_price
-from .pricestf import ratelimit
+from .pricestf import get_price, ratelimit
