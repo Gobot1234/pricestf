@@ -1,91 +1,68 @@
+import asyncio
 from json import load
-from os import path
-import requests
+from enum import IntEnum
+from typing import Optional
 
-itemidsfile = path.join(path.dirname(path.abspath(__file__)), 'itemids.json')
-with open(itemidsfile) as json_file:
-    itemids = load(json_file)
+import aiohttp
 
-qualities = {
-"Normal" : 0,
-"Genuine" : 1,
-"Vintage" : 3,
-"rarity3" : 4,
-"Unusual" : 5,
-"Unique" : 6,
-"Community" : 7,
-"Valve" : 8,
-"Self-Made" : 9,
-"Customized" : 10,
-"Strange" : 11,
-"Completed" : 12,
-"Haunted" : 13,
-"Collector's" : 14,
-"Decorated Weapon" : 15
-}
+session = aiohttp.ClientSession()
 
-def request(id, quality=6, au="", ks=""):
-    url = "https://api.prices.tf/items/" + str(id) + ";" + str(quality) + au + ks + "?src=bptf"
-    r = requests.get(url)
-    return(r.json(), r.headers)
+with open('defindex_mapping.json') as f:
+    mapping = load(f)
+    f.close()
 
-def ratelimit():
-    data = {}
-    urlrequest = request(0)
-    headers = urlrequest[1]
-    data["limit"] = int(headers["X-RateLimit-Limit"])
-    data["remaining"] = int(headers["X-RateLimit-Remaining"])
-    data["reset"] = int(headers["X-RateLimit-Reset"])
 
-    return(data)
+class Quality(IntEnum):
+    Normal = 0
+    Genuine = 1
+    Vintage = 3
+    rarity3 = 4
+    Unusual = 5
+    Unique = 6
+    Community = 7
+    Valve = 8
+    SelfMade = 9
+    Customized = 10
+    Strange = 11
+    Completed = 12
+    Haunted = 13
+    Collectors = 14
+    DecoratedWeapon = 15
 
-def get_price(name, quality="", australium=False, killstreak=0, error_message=True, ratelimit_data=False):
-    data = {}
-    au = ""
-    ks = ""
-    qua = 6
 
+async def request(defindex, *, quality: Quality = Quality.Unique,
+                  australium: Optional[str] = None, killstreak: Optional[str] = None) -> aiohttp.ClientResponse:
+    australium = australium if australium else ""
+    killstreak = killstreak if killstreak else ""
+    url = f"https://api.prices.tf/items/{defindex};{quality}{australium}{killstreak}?src=bptf"
+
+    resp = await session.get(url)
+    if resp.status == 200:
+        return await resp.json()
+    elif resp.status == 429:
+        await asyncio.sleep(float(resp.headers['Retry-After']))
+
+
+async def get_price(name, *, quality: Quality = Quality.Unique, australium: bool = False, killstreak: int = 0) -> dict:
     if australium:
-        au = ";australium"
-
-    if killstreak > 0 and killstreak <= 3:
-        ks = ";kt-" + str(killstreak)
-
-    if quality in qualities:
-        qua = qualities[quality]
+        australium = ";australium"
+    if 0 < killstreak <= 3:
+        killstreak = f";kt-{killstreak}"
 
     try:
-        id = itemids[name]
-    except:
-        if error_message:
-            print("NameError: No item named " + name)
-        return(4)
+        defindex = mapping[name]
+    except KeyError:
+        raise
 
-    urlrequest = request(id, quality=qua, au=au, ks=ks)
+    content = await request(defindex, quality=quality, australium=australium, killstreak=killstreak)
 
-    request_content = urlrequest[0]
-    headers = urlrequest[1]
-
-    if request_content['success'] == False:
-        if error_message:
-            print("Something went wrong: '" + request_content["message"] + "'")
-
-        if request_content["message"] == "Rate limit exceeded, try again later":
-            return(1)
-        elif  request_content["message"] == "Item is not priced":
-            return(2)
-        elif request_content["message"] == "No prices for given source":
-            return(3)
-        else:
-            return(0)
+    if not content['success']:
+        raise aiohttp.ClientError(content['message'])
     else:
-        data['name'] = request_content['name']
-        data['buy_price'] = request_content['buy']
-        data['sell_price'] = request_content['sell']
-        if ratelimit_data:
-            data["ratelimit"] = {}
-            data["ratelimit"]["limit"] = int(headers["X-RateLimit-Limit"])
-            data["ratelimit"]["remaining"] = int(headers["X-RateLimit-Remaining"])
-            data["ratelimit"]["reset"] = int(headers["X-RateLimit-Reset"])
+        data = {
+            "name": content['name'],
+            "buy_price": content['buy'],
+            "sell_price": content['sell']
+        }
 
-    return(data)
+    return data
