@@ -58,11 +58,10 @@ async def get_price(name, *, quality: Quality = Quality.Unique, australium: bool
 
     if not content['success']:
         raise aiohttp.ClientError(content['message'])
-    else:
-        data = {
-            "name": content['name'],
-            "buy_price": content['buy'],
-            "sell_price": content['sell']
-        }
+    data = {
+        "name": content['name'],
+        "buy_price": content['buy'],
+        "sell_price": content['sell']
+    }
 
     return data
